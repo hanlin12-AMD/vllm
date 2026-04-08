@@ -19,10 +19,7 @@ There are two levels at which online tuning can be invoked:
 
 1. **C++-level (HIP_ONLINE_TUNING env var)**
    Intercepted inside `hipbsolgemm.cu` for every call that goes through
-   `hipblasLtMatmul_sol_wrapper`. This includes `torch.nn.functional.linear`
-   and `torch._scaled_mm` (the PyTorch ROCm BLAS backend) as well as
-   aiter's `hipb_mm`. It is limited to decode-phase shapes (N <= 512).
-   Results are saved to `./hip_online_tuning_res.csv`.
+   `hipblasLtMatmul_sol_wrapper`.
 
 2. **Python-level (aiter hipb_mm with solution_index)**
    Calling `hipb_mm(A, B, solution_index=-1, ...)` lets hipBLASLt choose
