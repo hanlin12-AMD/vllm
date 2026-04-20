@@ -386,6 +386,7 @@ def _get_backend_priorities(
     if is_aiter_found_and_supported():
         backends.append(AttentionBackendEnum.ROCM_AITER_UNIFIED_ATTN)
     backends.append(AttentionBackendEnum.TRITON_ATTN)
+    backends.append(AttentionBackendEnum.TURBOQUANT)
 
     return backends
 
@@ -416,6 +417,7 @@ class RocmPlatform(Platform):
         "gguf",
         "quark",
         "mxfp4",
+        "gpt_oss_mxfp4",
         "torchao",
         "bitsandbytes",
         "modelopt_fp4",
