@@ -68,6 +68,7 @@ aiter_available = importlib.util.find_spec("aiter") is not None
 
 try:
     from vllm.platforms import current_platform
+
     is_rocm = current_platform.is_rocm()
 except Exception:
     is_rocm = False
@@ -81,9 +82,11 @@ pytestmark = pytest.mark.skipif(
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _init_hipblas():
     """Initialise the hipBLASLt handle (lazy, idempotent)."""
     import aiter
+
     aiter.hipb_create_extension()
 
 
@@ -103,6 +106,7 @@ def _reference(A, B):
 # Example 1: hipb_mm with heuristic (solution_index = -1)
 # ---------------------------------------------------------------------------
 
+
 def test_hipb_mm_heuristic():
     """
     Demonstrates calling hipb_mm with solution_index=-1 (heuristic mode).
@@ -121,16 +125,18 @@ def test_hipb_mm_heuristic():
 
     # Typical decode-phase shapes: small M (batch), large N/K
     shapes = [
-        (1,   4096, 4096),   # batch=1  decode
-        (4,   4096, 4096),   # batch=4  decode
-        (1,   8192, 8192),   # batch=1, larger weights
-        (16,  512,  4096),   # N=512, boundary case for online tuning
+        (1, 4096, 4096),  # batch=1  decode
+        (4, 4096, 4096),  # batch=4  decode
+        (1, 8192, 8192),  # batch=1, larger weights
+        (16, 512, 4096),  # N=512, boundary case for online tuning
     ]
 
     online_tuning_active = os.environ.get("HIP_ONLINE_TUNING", "0") in ("1", "true")
     if online_tuning_active:
-        print("\n[INFO] HIP_ONLINE_TUNING is active — first unseen shapes will "
-              "be benchmarked and saved to ./hip_online_tuning_res.csv")
+        print(
+            "\n[INFO] HIP_ONLINE_TUNING is active — first unseen shapes will "
+            "be benchmarked and saved to ./hip_online_tuning_res.csv"
+        )
     else:
         print("\n[INFO] HIP_ONLINE_TUNING is not set — using heuristic only")
 
@@ -143,8 +149,9 @@ def test_hipb_mm_heuristic():
 
         ref = _reference(A, B)
         assert C.shape == (m, n), f"Expected ({m},{n}), got {C.shape}"
-        assert torch.allclose(C.float(), ref.float(), atol=0.05, rtol=0.05), \
+        assert torch.allclose(C.float(), ref.float(), atol=0.05, rtol=0.05), (
             f"Numerical mismatch for shape ({m},{n},{k})"
+        )
 
         print(f"  ({m:4d}, {n:4d}, {k:4d})  ✓  out={C.shape}  dtype={C.dtype}")
 
@@ -154,6 +161,7 @@ def test_hipb_mm_heuristic():
 # ---------------------------------------------------------------------------
 # Example 2: hipb_mm with a specific solution_index (from findallsols)
 # ---------------------------------------------------------------------------
+
 
 def test_hipb_mm_explicit_solution():
     """
@@ -178,7 +186,8 @@ def test_hipb_mm_explicit_solution():
 
     # Step 1: find all valid solutions for this shape
     solutions = aiter.hipb_findallsols(
-        A, B_t,
+        A,
+        B_t,
         bias=None,
         out_dtype=torch.bfloat16,
         scaleA=None,
@@ -186,8 +195,7 @@ def test_hipb_mm_explicit_solution():
         bpreshuffle=False,
     )
     assert len(solutions) > 0, "hipb_findallsols returned 0 solutions"
-    print(f"\n  Found {len(solutions)} hipBLASLt solutions for "
-          f"({m}, {n}, {k}) bf16")
+    print(f"\n  Found {len(solutions)} hipBLASLt solutions for ({m}, {n}, {k}) bf16")
 
     # Step 2: quick benchmark — pick the fastest
     num_warmup, num_iters = 5, 20
@@ -198,19 +206,19 @@ def test_hipb_mm_explicit_solution():
         # warmup
         for _ in range(num_warmup):
             aiter.hipb_mm(A, B_t, sol)
-        torch.cuda.synchronize()
+        torch.accelerator.synchronize()
 
         start = torch.cuda.Event(enable_timing=True)
-        end   = torch.cuda.Event(enable_timing=True)
+        end = torch.cuda.Event(enable_timing=True)
         start.record()
         for _ in range(num_iters):
             aiter.hipb_mm(A, B_t, sol)
         end.record()
-        torch.cuda.synchronize()
+        torch.accelerator.synchronize()
 
         elapsed_us = start.elapsed_time(end) * 1000 / num_iters  # ms → µs
         if elapsed_us < best_us:
-            best_us  = elapsed_us
+            best_us = elapsed_us
             best_idx = sol
 
     print(f"  Best solution_index={best_idx}  ({best_us:.1f} µs)")
@@ -220,8 +228,9 @@ def test_hipb_mm_explicit_solution():
     ref = _reference(A, B)
 
     assert C.shape == (m, n)
-    assert torch.allclose(C.float(), ref.float(), atol=0.05, rtol=0.05), \
+    assert torch.allclose(C.float(), ref.float(), atol=0.05, rtol=0.05), (
         "Numerical mismatch with best solution"
+    )
 
     print("[PASS] test_hipb_mm_explicit_solution")
 
@@ -229,6 +238,7 @@ def test_hipb_mm_explicit_solution():
 # ---------------------------------------------------------------------------
 # Example 3: Verify the online-tuning CSV cache is populated
 # ---------------------------------------------------------------------------
+
 
 def test_hip_online_tuning_csv_populated():
     """
@@ -243,8 +253,6 @@ def test_hip_online_tuning_csv_populated():
     """
     if os.environ.get("HIP_ONLINE_TUNING", "0") not in ("1", "true"):
         pytest.skip("HIP_ONLINE_TUNING is not set — CSV cache is not written")
-
-    import csv
 
     import aiter
 
@@ -263,23 +271,23 @@ def test_hip_online_tuning_csv_populated():
 
     # First call: triggers benchmarking + writes CSV
     C = aiter.hipb_mm(A, B.t(), solution_index=-1)
-    torch.cuda.synchronize()
+    torch.accelerator.synchronize()
 
-    assert os.path.exists(cache_file), \
+    assert os.path.exists(cache_file), (
         f"Expected {cache_file} to be created by online tuning"
+    )
 
     # Verify a row for (m, n, k) appears in the CSV
     found = _find_csv_row(cache_file, m, n, k)
-    assert found, \
-        f"No row for ({m},{n},{k}) found in {cache_file}"
+    assert found, f"No row for ({m},{n},{k}) found in {cache_file}"
     print(f"\n  Cache row for ({m},{n},{k}): {found}")
 
     # Second call: cache-hit path (no benchmarking)
     C2 = aiter.hipb_mm(A, B.t(), solution_index=-1)
-    torch.cuda.synchronize()
+    torch.accelerator.synchronize()
 
     ref = _reference(A, B)
-    assert torch.allclose(C.float(),  ref.float(), atol=0.05, rtol=0.05)
+    assert torch.allclose(C.float(), ref.float(), atol=0.05, rtol=0.05)
     assert torch.allclose(C2.float(), ref.float(), atol=0.05, rtol=0.05)
 
     print("[PASS] test_hip_online_tuning_csv_populated")
@@ -289,10 +297,11 @@ def test_hip_online_tuning_csv_populated():
 # Example 4: vLLM integration via VLLM_ROCM_USE_AITER_HIP_ONLINE_TUNING
 # ---------------------------------------------------------------------------
 
+
 def test_vllm_env_var_sets_hip_online_tuning():
     """
-    Demonstrates that vLLM's VLLM_ROCM_USE_AITER_HIP_ONLINE_TUNING=1
-    propagates to HIP_ONLINE_TUNING=1 at the C++ level.
+    Demonstrates that vLLM's ROCm AITER knobs that rely on hipBLASLt online
+    tuning propagate to HIP_ONLINE_TUNING=1 at the C++ level.
 
     In normal usage the env var must be set *before* the process starts
     (because vllm/platforms/rocm.py reads and forwards it at import time,
@@ -326,16 +335,23 @@ def test_vllm_env_var_sets_hip_online_tuning():
 
     if envs.VLLM_ROCM_USE_AITER_HIP_ONLINE_TUNING:
         assert os.environ.get("HIP_ONLINE_TUNING") == "1", (
-            "VLLM_ROCM_USE_AITER_HIP_ONLINE_TUNING=1 was set but "
+            "VLLM_ROCM_USE_AITER_HIP_ONLINE_TUNING was set but "
             "HIP_ONLINE_TUNING was not forwarded to the environment. "
             "Make sure vllm.platforms.rocm is imported before hipBLASLt "
             "is initialised."
         )
-        print("\n  VLLM_ROCM_USE_AITER_HIP_ONLINE_TUNING=1 → "
-              "HIP_ONLINE_TUNING=1  ✓")
+        print("\n  ROCm AITER HIP tuning env var → HIP_ONLINE_TUNING=1  ✓")
+    elif envs.VLLM_ROCM_AITER_FORCE_HIPBMM_LINEAR:
+        assert os.environ.get("HIP_ONLINE_TUNING") != "1", (
+            "VLLM_ROCM_AITER_FORCE_HIPBMM_LINEAR should not enable "
+            "HIP_ONLINE_TUNING by default."
+        )
+        print("\n  Force hipb_mm linear is set without HIP online tuning  ✓")
     else:
-        print("\n  VLLM_ROCM_USE_AITER_HIP_ONLINE_TUNING is not set "
-              "(HIP_ONLINE_TUNING will not be enabled via vLLM)")
+        print(
+            "\n  No ROCm AITER HIP tuning env var is set "
+            "(HIP_ONLINE_TUNING will not be enabled via vLLM)"
+        )
 
     print("[PASS] test_vllm_env_var_sets_hip_online_tuning")
 
@@ -343,6 +359,7 @@ def test_vllm_env_var_sets_hip_online_tuning():
 # ---------------------------------------------------------------------------
 # Example 5: FP8 row-wise scaled GEMM with hipb_mm
 # ---------------------------------------------------------------------------
+
 
 def test_hipb_mm_fp8_rowwise():
     """
@@ -354,12 +371,11 @@ def test_hipb_mm_fp8_rowwise():
     Online tuning also applies here when HIP_ONLINE_TUNING=1 and N <= 512.
     """
     import aiter
-    from aiter import dtypes
 
     _init_hipblas()
 
     try:
-        fp8_dtype = torch.float8_e4m3fnuz   # MI300 native FP8
+        fp8_dtype = torch.float8_e4m3fnuz  # MI300 native FP8
     except AttributeError:
         pytest.skip("torch.float8_e4m3fnuz not available")
 
@@ -376,7 +392,7 @@ def test_hipb_mm_fp8_rowwise():
     # hipb_mm expects scaleB to be transposed → [1, N]
     C = aiter.hipb_mm(
         A_fp8,
-        B_fp8.t(),           # [K, N]
+        B_fp8.t(),  # [K, N]
         solution_index=-1,
         out_dtype=torch.bfloat16,
         scaleA=x_scale,
@@ -386,31 +402,71 @@ def test_hipb_mm_fp8_rowwise():
     assert C.shape == (m, n), f"Expected ({m},{n}), got {C.shape}"
     assert C.dtype == torch.bfloat16
 
-    # Reference: dequantise then matmul
-    ref = (A_bf16.float() @ B_bf16.float().t()).bfloat16()
-    assert torch.allclose(C.float(), ref.float(), atol=0.5, rtol=0.1), \
-        "FP8 result deviates too far from bf16 reference"
+    # Reference: dequantise the quantized FP8 inputs using their row-wise scales,
+    # then run the same linear algebra in fp32.
+    ref = torch.nn.functional.linear(
+        A_fp8.float() * x_scale.float(),
+        B_fp8.float() * w_scale.float(),
+    ).bfloat16()
+    assert torch.allclose(C.float(), ref.float(), atol=0.5, rtol=0.1), (
+        "FP8 result deviates too far from dequantized FP8 reference"
+    )
 
     print(f"\n  FP8 rowwise ({m},{n},{k})  ✓  out={C.shape}")
     print("[PASS] test_hipb_mm_fp8_rowwise")
 
 
 # ---------------------------------------------------------------------------
+# Example 6: vLLM kernel gating for AiterHipbMMPerTokenFp8ScaledMMLinearKernel
+# ---------------------------------------------------------------------------
+
+
+def test_aiter_hipb_mm_kernel_requires_force_flag(monkeypatch: pytest.MonkeyPatch):
+    from vllm._aiter_ops import rocm_aiter_ops
+    from vllm.model_executor.kernels.linear.scaled_mm.aiter import (
+        AiterHipbMMPerTokenFp8ScaledMMLinearKernel,
+    )
+
+    monkeypatch.setenv("VLLM_ROCM_USE_AITER", "1")
+    monkeypatch.setenv("VLLM_ROCM_USE_AITER_LINEAR", "1")
+    monkeypatch.delenv("VLLM_ROCM_AITER_FORCE_HIPBMM_LINEAR", raising=False)
+    rocm_aiter_ops.refresh_env_variables()
+
+    try:
+        is_supported, reason = AiterHipbMMPerTokenFp8ScaledMMLinearKernel.is_supported()
+        assert not is_supported
+        assert reason is not None
+        assert "VLLM_ROCM_AITER_FORCE_HIPBMM_LINEAR=1" in reason
+        print("[PASS] test_aiter_hipb_mm_kernel_requires_force_flag")
+    finally:
+        monkeypatch.undo()
+        rocm_aiter_ops.refresh_env_variables()
+
+
+# ---------------------------------------------------------------------------
 # CSV helpers (used by test_hip_online_tuning_csv_populated)
 # ---------------------------------------------------------------------------
+
+
+def _csv_row_matches_shape(row: dict, m: int, n: int, k: int) -> bool:
+    """hipBLASLt tuning CSVs may store the logical M/N order swapped."""
+    row_m = int(row.get("m", -1))
+    row_n = int(row.get("n", -1))
+    row_k = int(row.get("k", -1))
+    return row_k == k and ((row_m == m and row_n == n) or (row_m == n and row_n == m))
+
 
 def _find_csv_row(path: str, m: int, n: int, k: int) -> dict | None:
     """Return the first CSV row whose m/n/k fields match, or None."""
     if not os.path.exists(path):
         return None
     import csv as _csv
+
     with open(path, newline="") as f:
-        reader = _csv.DictReader(f)
+        reader = _csv.DictReader(f, skipinitialspace=True)
         for row in reader:
             try:
-                if (int(row.get("m", -1)) == m
-                        and int(row.get("n", -1)) == n
-                        and int(row.get("k", -1)) == k):
+                if _csv_row_matches_shape(row, m, n, k):
                     return dict(row)
             except (ValueError, KeyError):
                 continue
@@ -422,15 +478,14 @@ def _remove_csv_row(path: str, m: int, n: int, k: int) -> None:
     if not os.path.exists(path):
         return
     import csv as _csv
+
     rows = []
     with open(path, newline="") as f:
-        reader = _csv.DictReader(f)
+        reader = _csv.DictReader(f, skipinitialspace=True)
         fieldnames = reader.fieldnames
         for row in reader:
             try:
-                if not (int(row.get("m", -1)) == m
-                        and int(row.get("n", -1)) == n
-                        and int(row.get("k", -1)) == k):
+                if not _csv_row_matches_shape(row, m, n, k):
                     rows.append(row)
             except (ValueError, KeyError):
                 rows.append(row)
@@ -457,8 +512,11 @@ if __name__ == "__main__":
 
     try:
         import vllm.envs as envs
-        print(f"VLLM_ROCM_USE_AITER_HIP_ONLINE_TUNING = "
-              f"{envs.VLLM_ROCM_USE_AITER_HIP_ONLINE_TUNING}")
+
+        print(
+            f"VLLM_ROCM_USE_AITER_HIP_ONLINE_TUNING = "
+            f"{envs.VLLM_ROCM_USE_AITER_HIP_ONLINE_TUNING}"
+        )
     except ImportError:
         pass
 
@@ -473,6 +531,10 @@ if __name__ == "__main__":
     test_vllm_env_var_sets_hip_online_tuning()
     print()
     test_hipb_mm_fp8_rowwise()
+    print()
+    test_aiter_hipb_mm_kernel_requires_force_flag(pytest.MonkeyPatch())
+    print()
+
 
     print()
     print("=" * 60)
