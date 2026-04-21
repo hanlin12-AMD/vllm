@@ -597,7 +597,7 @@ def _rocm_aiter_hipb_mm_fp8_impl(
     scale_b = Bs.t().contiguous() if Bs.ndim > 1 else Bs
     return hipb_mm(
         A,
-        B.t().contiguous(),
+        B.t(),
         solution_index=-1,
         bias=bias,
         out_dtype=output_dtype,

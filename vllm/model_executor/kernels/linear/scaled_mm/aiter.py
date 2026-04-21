@@ -292,6 +292,7 @@ class AiterHipbMMPerTokenFp8ScaledMMLinearKernel(FP8ScaledMMLinearKernel):
         bias: torch.Tensor | None,
         output_shape: list,
     ) -> torch.Tensor:
+        output_shape[-1] = B.shape[0]
         return rocm_aiter_ops.hipb_mm_fp8(A, B, As, Bs, bias, out_dtype).view(
             *output_shape
         )
