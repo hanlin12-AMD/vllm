@@ -263,7 +263,7 @@ class AiterHipbMMPerTokenFp8ScaledMMLinearKernel(FP8ScaledMMLinearKernel):
         if not (N >= 16 and N % 16 == 0 and K % 16 == 0):
             return (
                 False,
-                f"requires N >= 16 and N/K divisible by 16, received N={N} and K={K}.",
+                f"requires N >= 16 and both N and K divisible by 16, received N={N} and K={K}.",
             )
 
         return True, None
